@@ -110,8 +110,12 @@ bool WireGuard::begin(const IPAddress &localIP, const IPAddress &Subnet, const I
 
 	wg.bind_netif = NULL;
 
-	// Initialise the first WireGuard peer structure
+	// Initialize the first WireGuard peer structure
 	wireguardif_peer_init(&peer);
+
+	// Initialize the platform
+	wireguard_platform_init();
+
 	// If we know the endpoint's address can add here
 	bool success_get_endpoint_ip = false;
 	for (int retry = 0; retry < 5; retry++)
@@ -209,8 +213,6 @@ bool WireGuard::begin(const IPAddress &localIP, const IPAddress &Subnet, const I
 
 	peer.endport_port = remotePeerPort;
 
-	// Initialize the platform
-	wireguard_platform_init();
 	// Register the new WireGuard peer with the netwok interface
 	wireguardif_add_peer(wg_netif, &peer, &wireguard_peer_index);
 	if ((wireguard_peer_index != WIREGUARDIF_INVALID_INDEX) && !ip_addr_isany(&peer.endpoint_ip))
