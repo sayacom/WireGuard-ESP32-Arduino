@@ -213,7 +213,12 @@ bool WireGuard::begin(const IPAddress &localIP, const IPAddress &Subnet, const I
 
 	peer.endport_port = remotePeerPort;
 
-	// Register the new WireGuard peer with the netwok interface
+	// Register the new WireGuard peer with the network interface.
+	// The periodic timer (wireguardif_tmr) runs in the tcpip thread and reads
+	// the same peer state, so hold the TCPIP core lock while mutating peers to
+	// avoid a data race. wireguardif_add_peer()/wireguardif_connect() only touch
+	// the device/peer structs (no lwIP core calls), so this does not recurse.
+	LOCK_TCPIP_CORE();
 	wireguardif_add_peer(wg_netif, &peer, &wireguard_peer_index);
 	if ((wireguard_peer_index != WIREGUARDIF_INVALID_INDEX) && !ip_addr_isany(&peer.endpoint_ip))
 	{
@@ -223,10 +228,9 @@ bool WireGuard::begin(const IPAddress &localIP, const IPAddress &Subnet, const I
 		// Save the current default interface for restoring when shutting down the WG interface.
 		previous_default_netif = netif_default;
 		// Set default interface to WG device.
-		LOCK_TCPIP_CORE();
 		netif_set_default(wg_netif);
-		UNLOCK_TCPIP_CORE();
 	}
+	UNLOCK_TCPIP_CORE();
 
 	this->_is_initialized = true;
 	return true;
