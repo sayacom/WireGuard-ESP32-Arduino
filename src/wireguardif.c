@@ -925,27 +925,6 @@ err_t wireguardif_init(struct netif *netif) {
 	size_t private_key_len = sizeof(private_key);
 
 	struct netif *underlying_netif = NULL;
-	char lwip_netif_name[8] = {0};
-	esp_netif_t *netif_handle = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
-	if (netif_handle == NULL) {
-	    log_e(TAG "No default STA interface");
-	    result = ERR_IF;
-	    goto fail;
-	}
-	esp_err_t err = esp_netif_get_netif_impl_name(netif_handle, lwip_netif_name);
-	if (err != ESP_OK) {
-	    log_e(TAG "esp_netif_get_netif_impl_name failed: %s", esp_err_to_name(err));
-	    result = ERR_IF;
-	    goto fail;
-	}
-	underlying_netif = netif_find(lwip_netif_name);
-	if (underlying_netif == NULL) {
-	    log_e(TAG "netif_find: cannot find WIFI_STA_DEF");
-	    result = ERR_IF;
-	    goto fail;
-	}
-
-	log_i(TAG "underlying_netif = %p", underlying_netif);
 
 	LWIP_ASSERT("netif != NULL", (netif != NULL));
 	LWIP_ASSERT("state != NULL", (netif->state != NULL));
@@ -958,6 +937,28 @@ err_t wireguardif_init(struct netif *netif) {
 
 		// The init data is passed into the netif_add call as the 'state' - we will replace this with our private state data
 		init_data = (struct wireguardif_init_data *)netif->state;
+
+		// Resolve the underlying (transport) netif. Prefer the caller-provided
+		// bind_netif; fall back to the WiFi station interface by if-key for
+		// backward compatibility. Note: this function runs under the TCPIP core
+		// lock (called from netif_add), so the esp_netif fallback below should
+		// normally not be exercised - callers are expected to set bind_netif.
+		underlying_netif = init_data->bind_netif;
+		if (underlying_netif == NULL) {
+			char lwip_netif_name[8] = {0};
+			esp_netif_t *netif_handle = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+			if (netif_handle != NULL &&
+			    esp_netif_get_netif_impl_name(netif_handle, lwip_netif_name) == ESP_OK) {
+				underlying_netif = netif_find(lwip_netif_name);
+			}
+		}
+		if (underlying_netif == NULL) {
+			log_e(TAG "cannot resolve underlying netif");
+			netif->state = NULL;
+			result = ERR_IF;
+			goto fail;
+		}
+		log_i(TAG "underlying_netif = %p", underlying_netif);
 
 		// Clear out and set if function is successful
 		netif->state = NULL;

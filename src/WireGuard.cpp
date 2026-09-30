@@ -91,6 +91,33 @@ static wg_driver_glue_t *create_wg_glue(struct netif *lwip)
 	return g;
 }
 
+// Resolve the underlying (transport) netif that WireGuard packets are sent over.
+// Prefer the current default-route interface so the tunnel works over whatever
+// underlay is active (WiFi STA, Ethernet, or cellular/PPP), and fall back to the
+// WiFi station interface by if-key for backward compatibility. Must be called
+// before the WG netif becomes the default interface (i.e. before netif_add /
+// netif_set_default) and without holding the TCPIP core lock, since esp_netif
+// APIs acquire that lock internally.
+static struct netif *resolve_underlying_netif()
+{
+	struct netif *underlay = netif_default;
+	if (underlay != NULL)
+	{
+		return underlay;
+	}
+
+	esp_netif_t *handle = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+	if (handle != NULL)
+	{
+		char impl_name[8] = {0};
+		if (esp_netif_get_netif_impl_name(handle, impl_name) == ESP_OK)
+		{
+			underlay = netif_find(impl_name);
+		}
+	}
+	return underlay;
+}
+
 bool WireGuard::begin(const IPAddress &localIP, const IPAddress &Subnet, const IPAddress &Gateway, const char *privateKey, const char *remotePeerAddress, const char *remotePeerPublicKey, uint16_t remotePeerPort)
 {
 	struct wireguardif_init_data wg;
@@ -108,7 +135,14 @@ bool WireGuard::begin(const IPAddress &localIP, const IPAddress &Subnet, const I
 	wg.private_key = privateKey;
 	wg.listen_port = remotePeerPort;
 
-	wg.bind_netif = NULL;
+	// Resolve the underlying transport interface up front (no TCPIP core lock
+	// held here) and pass it to wireguardif_init via bind_netif.
+	wg.bind_netif = resolve_underlying_netif();
+	if (wg.bind_netif == NULL)
+	{
+		log_e(TAG "failed to resolve underlying netif. Is the network up?");
+		return false;
+	}
 
 	// Initialize the first WireGuard peer structure
 	wireguardif_peer_init(&peer);
