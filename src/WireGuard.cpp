@@ -263,8 +263,11 @@ void WireGuard::end()
 	wireguardif_shutdown(wg_netif);
 	// Remove the WG interface;
 	netif_remove(wg_netif);
-	esp_netif_destroy(wg_esp_netif);
 	UNLOCK_TCPIP_CORE();
+
+	// esp_netif_destroy() acquires the TCPIP core lock internally, so it must
+	// be called outside of the LOCK_TCPIP_CORE()/UNLOCK_TCPIP_CORE() section.
+	esp_netif_destroy(wg_esp_netif);
 
 	wg_netif = nullptr;
 	wg_esp_netif = nullptr;
