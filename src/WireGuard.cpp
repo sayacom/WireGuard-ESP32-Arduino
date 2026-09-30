@@ -148,12 +148,12 @@ bool WireGuard::begin(const IPAddress &localIP, const IPAddress &Subnet, const I
 	LOCK_TCPIP_CORE();
 	// Register the new WireGuard network interface with lwIP
 	wg_netif = netif_add(&wg_netif_struct, ip_2_ip4(&ipaddr), ip_2_ip4(&netmask), ip_2_ip4(&gateway), &wg, &wireguardif_init, &ip_input);
+	UNLOCK_TCPIP_CORE();
 	if (wg_netif == nullptr)
 	{
 		log_e(TAG "failed to initialize WG netif.");
 		return false;
 	}
-	UNLOCK_TCPIP_CORE();
 
 	esp_netif_inherent_config_t inh = ESP_NETIF_INHERENT_DEFAULT_ETH();
 	inh.flags = (esp_netif_flags_t)(ESP_NETIF_FLAG_AUTOUP);
