@@ -147,8 +147,12 @@ bool WireGuard::begin(const IPAddress &localIP, const IPAddress &Subnet, const I
 	// Initialize the first WireGuard peer structure
 	wireguardif_peer_init(&peer);
 
-	// Initialize the platform
-	wireguard_platform_init();
+	// Initialize the platform (seeds the CTR-DRBG used for key generation)
+	if (!wireguard_platform_init())
+	{
+		log_e(TAG "failed to initialize crypto RNG.");
+		return false;
+	}
 
 	// If we know the endpoint's address can add here
 	bool success_get_endpoint_ip = false;
@@ -215,9 +219,14 @@ bool WireGuard::begin(const IPAddress &localIP, const IPAddress &Subnet, const I
 		return false;
 	}
 
+	// DHCP client is not stopped by default; ignore ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED.
 	esp_netif_dhcpc_stop(wg_esp_netif);
 	wg_driver_glue_t *wg_glue = create_wg_glue(wg_netif);
-	esp_netif_attach(wg_esp_netif, wg_glue);
+	esp_err_t attach_err = esp_netif_attach(wg_esp_netif, wg_glue);
+	if (attach_err != ESP_OK)
+	{
+		log_w(TAG "esp_netif_attach failed: %s", esp_err_to_name(attach_err));
+	}
 
 	ip_event_got_ip_t evt = {};
 	evt.esp_netif = wg_esp_netif;
@@ -226,7 +235,11 @@ bool WireGuard::begin(const IPAddress &localIP, const IPAddress &Subnet, const I
 	evt.ip_info.gw.addr = gateway.u_addr.ip4.addr;
 	evt.ip_info.netmask.addr = netmask.u_addr.ip4.addr;
 
-	esp_netif_set_ip_info(wg_esp_netif, &evt.ip_info);
+	esp_err_t ipinfo_err = esp_netif_set_ip_info(wg_esp_netif, &evt.ip_info);
+	if (ipinfo_err != ESP_OK)
+	{
+		log_w(TAG "esp_netif_set_ip_info failed: %s", esp_err_to_name(ipinfo_err));
+	}
 	esp_netif_action_connected(wg_esp_netif, NULL, 0, NULL);
 
 	// Mark the interface as administratively up, link up flag is set automatically when peer connects
